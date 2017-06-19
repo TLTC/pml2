@@ -1,0 +1,89 @@
+---
+title: "Practical Machine Learning on Human Activity Recognition"
+author: "TLTC"
+date: "June 18, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+#Executive Summary
+This paper uses practical machine learning techniques on Human Activity Recognition (HAR) problems. In particular, the dataset includes measurements on six participants - they were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (five different classes from A to E). The goal is to build a model that accruately predict the class of activitiy given a set of measuresments. 
+
+#Data Preparation and Exploratory Analysis
+##Getting Data
+For best practice in reproducible research, datasets are sourced directly from the URLs instead of being downloaded manually first.
+```{r}
+URL1<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+URL2<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+library(RCurl)
+d1<-getURL(URL1)
+train<-read.csv(textConnection(d1))
+d2<-getURL(URL2)
+test<-read.csv(textConnection(d2))
+```
+##Cross-Validation
+Setting seed here for reproducible research and partitioning training and testing sets.
+```{r}
+library(caret)
+set.seed(11111)
+inTrain<-createDataPartition(train$classe, p=0.7, list=FALSE)
+trainSet<-train[inTrain, ]
+testSet<-train[-inTrain, ]
+```
+##Cleaning Data
+```{r}
+dim(trainSet)
+```
+First, cutting down the number of variables by removing zero covariates.
+```{r}
+nzv<-nearZeroVar(trainSet)
+trainSet<-trainSet[,-nzv]
+testSet<-testSet[,-nzv]
+dim(trainSet)
+```
+Still 100 variables left. Next step is to look at variables with high number of NAs.
+```{r,echo=FALSE}
+library(ggplot2)
+qplot(max_roll_belt,colour=classe,data=trainSet)
+```
+Doesn't look like it gives much information on differentiating the activity class. Therefore, removing such variables.
+```{r}
+na_count<-sapply(trainSet, function(y) sum(length(which(is.na(y)))))
+plot(na_count)
+```
+
+Looks like the the threshold is 12,000.
+```{r}
+naDrop<-names(which(na_count>12000))
+trainSet<-trainSet[,!names(trainSet) %in% naDrop]
+testSet<-testSet[,!names(testSet) %in% naDrop]
+```
+Finally, take out descriptive variables that are not relevant for the anlysis.
+```{r}
+trainSet<-trainSet[,-c(1:5)]
+testSet<-testSet[,-c(1:5)]
+```
+#Prediction Modeling
+Given the high number of variables available in the dataset, a Random Forests approach seems better than the simple Decision Tree model. Thus a Random Forests model will be fitted and checked for accuracy. If the result is unsatisfactory, a more elaborate approach such as boosting or stacking will be considered.
+
+##Random Forests
+Due to the large size of the dataset, CPU resources are constrainsed locally to build this model. Starting with a low number of trees to see if the accuracy is satisfactory. Here the model boostraps samples within the trainSet, boostraps variables at each split and grows multiple trees and votes for the next step.
+```{r}
+library(randomForest)
+numRF<- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRF<-train(classe~.,data=trainSet,method="rf",trControl=numRF)
+predRF<-predict(modFitRF,testSet)
+```
+And the accuracy of the Random Forests model is 99.69%, with an out-of-sample error of .0021.
+```{r}
+confusionMxRF<-confusionMatrix(predRF,testSet$classe)
+confusionMxRF$overall[1]
+```
+#Testing Prediction
+Appy the model to the test dataset:
+```{r}
+predTest<-predict(modFitRF,test)
+predTest
+```
